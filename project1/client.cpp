@@ -8,7 +8,7 @@
 using namespace std;
 
 string logfile;
-ofstream log;
+ofstream logger;
 
 string globalTime() {
     time_t now = time(0);   // get time now
@@ -21,9 +21,9 @@ string globalTime() {
 }
 
 void Logger(string message, int clock) {
-    log << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
+    logger << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
     cout << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
-    log.flush();
+    logger.flush();
     return;
 }
 
@@ -75,7 +75,7 @@ public:
 
         processId = argv[1];
         logfile = processId;
-        log.open("logs/" + logfile + ".txt", ios::app | ios::out);
+        logger.open("logs/" + logfile + ".txt", ios::app | ios::out);
         port = atoi(argv[2]);
 
         allClients = clients;
@@ -403,6 +403,6 @@ int main(int argc, char *argv[])
     processThread.join();
     connectionThread.join();
 
-    log.close();
+    logger.close();
     return 0;
 }
