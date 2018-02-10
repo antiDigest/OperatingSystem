@@ -8,7 +8,7 @@
 using namespace std;
 
 string logfile;
-ofstream log;
+ofstream logger;
 
 string globalTime() {
     time_t now = time(0);   // get time now
@@ -21,9 +21,9 @@ string globalTime() {
 }
 
 void Logger(string message, int clock) {
-    log << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
+    logger << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
     cout << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
-    log.flush();
+    logger.flush();
     return;
 }
 
@@ -60,10 +60,11 @@ public:
     struct sockaddr_in serv_addr, cli_addr;
     struct hostent *server;
     queue<Message*> messageQueue;
-    priority_queue<Message> readRequestQueue;
-    priority_queue<Message> writeRequestQueue;
+    priority_queue<Message*> readRequestQueue;
+    priority_queue<Message*> writeRequestQueue;
 
-    bool pendingEnquiry, pendingRead, pendingWrite;
+    bool pendingEnquiry=false, pendingRead=false, pendingWrite=false, waitForRelease=false;
+    int replyCount;
 
     Process(char *argv[], vector<ProcessInfo> clients, vector<ProcessInfo> servers) {
         /*
@@ -75,7 +76,7 @@ public:
 
         processId = argv[1];
         logfile = processId;
-        log.open("logs/" + logfile + ".txt", ios::app | ios::out);
+        logger.open("logs/" + logfile + ".txt", ios::app | ios::out);
         port = atoi(argv[2]);
 
         allClients = clients;
@@ -108,9 +109,9 @@ public:
         // listen for connections using the listen() system call
         listen(personalfd, 5);
         clilen = sizeof(cli_addr);
-        Logger("Listening for connections...", this->clock);
+        Logger("Waiting for communication...", this->clock);
 
-        this->sayHello();
+        // this->sayHello();
         this->enquiry();
     }
 
@@ -131,7 +132,7 @@ public:
         if (host == NULL) {
             throw "ERROR, no such host";
         }
-        Logger(hostname + ":" + to_string(portno)  + " found !", this->clock);
+        // Logger(hostname + ":" + to_string(portno)  + " found !", this->clock);
 
         struct sockaddr_in host_addr, cli_addr;
         bzero((char *) &host_addr, sizeof(host_addr));
@@ -153,7 +154,7 @@ public:
             try {
                 Logger("Connecting to " + server.processID + " at " + server.hostname, this->clock);
                 int fd = this->connectTo(server.hostname, server.port);
-                this->send(personalfd, fd, "hi");
+                this->send(personalfd, fd, "hi", server.processID);
                 // Message *m = this->receive(fd);
             }
             catch (const char* e) {
@@ -166,7 +167,7 @@ public:
                 if (client.processID != processId) {
                     Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
                     int fd = this->connectTo(client.hostname, client.port);
-                    this->send(personalfd, fd, "hi");
+                    this->send(personalfd, fd, "hi", client.processID);
                     // Message *m = this->receive(fd);
                 }
             }
@@ -177,7 +178,7 @@ public:
         }
     }
 
-    void send(int source, int destination, string message, int rw=0, string filename="NULL") {
+    Message* send(int source, int destination, string message, string destID, int rw=0, string filename="NULL") {
 
         /*
             Message send: sends 'message' from source to destination
@@ -196,7 +197,9 @@ public:
         if (destination == personalfd)
             Logger("[SENT TO SERVER ]: " + message, this->clock);
         else
-            Logger("[SENT TO " + to_string(destination) + "]: " + message, this->clock);
+            Logger("[SENT TO " + destID + "]: " + message, this->clock);
+
+        return msg;
     }
 
     Message* receive(int source) {
@@ -218,7 +221,7 @@ public:
         if (source == personalfd)
             Logger("[RECEIVED FROM SERVER ]: " + message->message, this->clock);
         else
-            Logger("[RECEIVED FROM " + to_string(source) + "]: " + message->message, this->clock);
+            Logger("[RECEIVED FROM " + message->sourceID + "]: " + message->message, this->clock);
 
         return message;
     }
@@ -231,7 +234,7 @@ public:
                 // continue;
                 error("ERROR on accept", this->clock);
             }
-            Logger("New connection " + to_string(newsockfd), this->clock);
+            // Logger("New connection " + to_string(newsockfd), this->clock);
 
             // this->introduce(newsockfd);
             Message *message = this->receive(newsockfd);
@@ -251,11 +254,11 @@ public:
         }
     }
 
-    void writeMessage(Message *m, string text, int rw=0, string f="NULL") {
+    void writeReply(Message *m, string text, int rw=0, string f="NULL") {
         ProcessInfo client = getFd(m);
         try {
             int fd = connectTo(client.hostname, client.port);
-            this->send(m->destination, fd, text, rw, f);
+            this->send(m->destination, fd, text, client.processID, rw, f);
             close(fd);
         } catch (const char* e) {
             Logger(e, this->clock);
@@ -267,22 +270,58 @@ public:
         if (m->message == "hi") {
             // otherFds[numBeings++] = m->source;
             // others[m->source] = m->sourceID;
-            writeMessage(m, "hello");
+            writeReply(m, "hello");
         } else if (m->message == "hello") {
             // if(others[m->source].empty()){
             //     otherFds[numBeings++] = m->source;
             //     others[m->source] = m->sourceID;
             // }
-        } else if (m->message == "received") {
         } else if (m->message == "request") {
-            // if (m->readWrite == 2) {
-            //     Logger("[WRITE REQUEST FOR FILE]: " + m->filename, this->clock);
-            // } else if (m->readWrite == 1) {
-            //     Logger("[READ REQUEST FOR FILE]: " + m->filename, this->clock);
-            // }
-            // readRequestQueue.push(m);
+            if (m->readWrite == 2) {
+                Logger("[WRITE REQUEST FOR FILE]: " + m->fileName, this->clock);
+                writeRequestQueue.push(m);
+                if (pendingRead){
+                    Message *write = writeRequestQueue.top();
+                    if(write->sourceID != processId){
+                        writeReply(m, "reply");
+                    }
+                }
+            } else if (m->readWrite == 1) {
+                Logger("[READ REQUEST FOR FILE]: " + m->fileName, this->clock);
+                readRequestQueue.push(m);
+                if (pendingRead){
+                    Message *read = readRequestQueue.top();
+                    if(read->sourceID != processId){
+                        writeReply(m, "reply");
+                    }
+                }
+            }
         } else if (m->message == "reply") {
+            replyCount++;
+            if(replyCount == allClients.size()){
+                criticalSection(m);
+                sendRelease(m);
+            }
         } else if (m->message == "release") {
+            if (m->readWrite == 2) {
+                Logger("[WRITE RELEASE FOR FILE]: " + m->fileName, this->clock);
+                writeRequestQueue.pop();
+                if(waitForRelease){
+                    Message *read = readRequestQueue.top();
+                    if(read->sourceID != processId){
+                        writeReply(m, "reply");
+                    }
+                }
+            } else if (m->readWrite == 1) {
+                Logger("[READ RELEASE FOR FILE]: " + m->fileName, this->clock);
+                readRequestQueue.pop();
+                if(waitForRelease){
+                    Message *read = readRequestQueue.top();
+                    if(read->sourceID != processId){
+                        writeReply(m, "reply");
+                    }
+                }
+            }
         } else if (m->message == "") {
         } else if (m->readWrite == 2) {
             Logger("[WRITTEN TO FILE]: " + m->message, this->clock);
@@ -318,7 +357,7 @@ public:
             try {
                 Logger("Connecting to " + server.processID + " at " + server.hostname, this->clock);
                 int fd = this->connectTo(server.hostname, server.port);
-                this->send(personalfd, fd, "enquiry", 3);
+                this->send(personalfd, fd, "enquiry", server.processID, 3);
                 // Message *m = this->receive(fd);
                 break;
             }
@@ -336,7 +375,9 @@ public:
                 if (client.processID != processId) {
                     Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
                     int fd = this->connectTo(client.hostname, client.port);
-                    this->send(personalfd, fd, "request", 1, "file1");
+                    Message* m = this->send(personalfd, fd, "request", client.processID, 1, "file1");
+                    readRequestQueue.push(m);
+                    pendingRead = true;
                     // Message *m = this->receive(fd);
                 }
             }
@@ -348,11 +389,51 @@ public:
     }
 
     void writeRequest() {
-
+        for (ProcessInfo client: allClients) {
+            try {
+                if (client.processID != processId) {
+                    Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
+                    int fd = this->connectTo(client.hostname, client.port);
+                    Message* m = this->send(personalfd, fd, "request", client.processID, 2, "file1");
+                    readRequestQueue.push(m);
+                    pendingWrite = true;
+                    // Message *m = this->receive(fd);
+                }
+            }
+            catch (const char* e) {
+                Logger(e, this->clock);
+                continue;
+            }
+        }
     }
 
-    void criticalSection() {
+    void sendRelease(Message *m) {
+        for (ProcessInfo client: allClients) {
+            try {
+                if (client.processID != processId) {
+                    Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
+                    int fd = this->connectTo(client.hostname, client.port);
+                    Message* m = this->send(personalfd, fd, "release", client.processID, m->readWrite, m->fileName);
+                    readRequestQueue.pop();
+                    if(m->readWrite == 1){
+                        pendingRead = false;
+                    } else if (m->readWrite == 2){
+                        pendingWrite = false;
+                    } else {
+                        pendingEnquiry = false;
+                    }
+                    // Message *m = this->receive(fd);
+                }
+            }
+            catch (const char* e) {
+                Logger(e, this->clock);
+                continue;
+            }
+        }
+    }
 
+    void criticalSection(Message *m) {
+        Logger("[CRITICAL SECTION]", this->clock);
     }
 
     void setClock() {
@@ -375,8 +456,14 @@ public:
 
 void io(Process *client) {
     int rw = rand() % 1;
-    sleep(15);
-    client->readRequest();
+    int i=0;
+    while(i < 10){
+        sleep(2);
+        client->readRequest();
+        sleep(2);
+        client->writeRequest();
+        i++;
+    }
 }
 
 int main(int argc, char *argv[])
@@ -393,6 +480,7 @@ int main(int argc, char *argv[])
     allClients = readClients(allClients, "clients.csv");
     allServers = readClients(allServers, "servers.csv");
 
+    sleep(30);
     Process *client = new Process(argv, allClients, allServers);
 
     std::thread processThread(&Process::processMessages, client);
@@ -403,6 +491,6 @@ int main(int argc, char *argv[])
     processThread.join();
     connectionThread.join();
 
-    log.close();
+    logger.close();
     return 0;
 }

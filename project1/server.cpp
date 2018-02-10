@@ -8,7 +8,7 @@
 using namespace std;
 
 string logfile;
-ofstream log;
+ofstream logger;
 
 string globalTime() {
     time_t now = time(0);   // get time now
@@ -21,9 +21,9 @@ string globalTime() {
 }
 
 void Logger(string message, int clock) {
-    log << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
+    logger << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
     cout << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
-    log.flush();
+    logger.flush();
     return;
 }
 
@@ -62,7 +62,7 @@ public:
     Server(char* argv[], vector<ProcessInfo> clients, vector<ProcessInfo> servers) {
 
         serverID = argv[1];
-        log.open("logs/" + serverID + ".txt", ios::app | ios::out);
+        logger.open("logs/" + serverID + ".txt", ios::app | ios::out);
 
         allClients = clients;
         allServers = servers;
@@ -98,38 +98,7 @@ public:
         // listen for connections using the listen() system call
         listen(personalfd, 5);
         clilen = sizeof(cli_addr);
-        Logger("Listening for connections...", this->clock);
-
-        this->sayHello();
-    }
-
-    void sayHello() {
-        for (ProcessInfo server: allServers) {
-            try {
-                if (server.processID != serverID) {
-                    Logger("Connecting to " + server.processID + " at " + server.hostname, this->clock);
-                    int fd = this->connectTo(server.hostname, server.port);
-                    this->send(personalfd, fd, "hi");
-                    // Message *m = this->receive(fd);
-                }
-            }
-            catch (const char* e) {
-                Logger(e, this->clock);
-                continue;
-            }
-        }
-        for (ProcessInfo client: allClients) {
-            try {
-                Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
-                int fd = this->connectTo(client.hostname, client.port);
-                this->send(personalfd, fd, "hi");
-                // Message *m = this->receive(fd);
-            }
-            catch (const char* e) {
-                Logger(e, this->clock);
-                continue;
-            }
-        }
+        Logger("Waiting for communication...", this->clock);
     }
 
     int connectTo(string hostname, int portno) {
@@ -144,7 +113,7 @@ public:
         if (host == NULL) {
             throw "ERROR, no such host";
         }
-        Logger(hostname + " found !", this->clock);
+        // Logger(hostname + " found !", this->clock);
 
         struct sockaddr_in host_addr, cli_addr;
         bzero((char *) &host_addr, sizeof(host_addr));
@@ -161,7 +130,7 @@ public:
         return fd;
     }
 
-    void send(int source, int destination, string message, int rw=0, string filename="NULL") {
+    void send(int source, int destination, string message, string destID, int rw=0, string filename="NULL") {
 
         Message *msg = new Message(false, rw, message, source, serverID, destination, this->clock, filename);
         this->setClock();
@@ -170,10 +139,7 @@ public:
         if (n < 0)
             error("ERROR writing to socket", this->clock);
 
-        if (clientIds[destination].empty())
-            Logger("[SENT TO " + to_string(destination) + "]: " + message, this->clock);
-        else
-            Logger("[SENT TO " + clientIds[destination] + "]: " + message, this->clock);
+        Logger("[SENT TO " + destID + "]: " + message, this->clock);
     }
 
     Message *receive(int source) {
@@ -203,7 +169,7 @@ public:
                 // continue;
                 error("ERROR on accept", this->clock);
             }
-            Logger("New connection " + to_string(newsockfd), this->clock);
+            // Logger("New connection " + to_string(newsockfd), this->clock);
 
             // this->introduce(newsockfd);
             Message* message = this->receive(newsockfd);
@@ -224,28 +190,19 @@ public:
         }
     }
 
-    void checkMessage(Message *message) {
-        if (message->message == "hi") {
-
-            ProcessInfo client = getFd(message);
-            try {
-                int fd = connectTo(client.hostname, client.port);
-                this->send(this->personalfd, fd, "hello");
-                close(fd);
-            } catch (const char* e) {
-                Logger(e, this->clock);
-                return;
-            }
+    void checkMessage(Message *m) {
+        if (m->message == "hi") {
+            writeReply(m, "hello");
         } else {
-            this->checkReadWrite(message);
+            this->checkReadWrite(m);
         }
     }
 
-    void writeMessage(Message *m, string text, int rw, string f="NULL"){
+    void writeReply(Message *m, string text, int rw=0, string f="NULL") {
         ProcessInfo client = getFd(m);
         try {
             int fd = connectTo(client.hostname, client.port);
-            this->send(m->destination, fd, text, rw, f);
+            this->send(m->destination, fd, text, client.processID, rw, f);
             close(fd);
         } catch (const char* e) {
             Logger(e, this->clock);
@@ -253,29 +210,24 @@ public:
         }
     }
 
-    void checkReadWrite(Message *message) {
-        switch (message->readWrite) {
-        case 0: {
-            this->send(message->destination, message->source, "received");
-            return;
-        }
+    void checkReadWrite(Message *m) {
+        switch (m->readWrite) {
         case 1: {
-            string line = readFile(message->fileName);
-            writeMessage(message, line, 1, message->fileName);
+            string line = readFile(m->fileName);
+            writeReply(m, line, 1, m->fileName);
             break;
         }
         case 2: {
-            writeToFile(message->fileName, message->message);
-            writeMessage(message, message->message, 2, message->fileName);
+            writeToFile(m->fileName, m->message);
+            writeReply(m, m->message, 2, m->fileName);
             break;
         }
         case 3: {
             vector<string> files = this->readDirectory(serverDirectory);
-            writeMessage(message, this->sendFiles(files), 3);
+            writeReply(m, this->sendFiles(files), 3);
             break;
         }
         default: {
-            this->send(message->destination, message->source, "Not making sense !");
             return;
         }
         }
@@ -370,6 +322,6 @@ int main(int argc, char *argv[])
     ProcessThread.join();
     connectionThread.join();
 
-    log.close();
+    logger.close();
     return 0;
 }
