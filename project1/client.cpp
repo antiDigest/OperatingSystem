@@ -3,35 +3,7 @@
     Version 0: 2/5/2018
 */
 
-#include "Message.hpp"
-
-using namespace std;
-
-string logfile;
-ofstream logger;
-
-string globalTime() {
-    time_t now = time(0);   // get time now
-    struct tm  tstruct;
-    char       buf[80];
-    tstruct = *localtime(&now);
-    strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-
-    return buf;
-}
-
-void Logger(string message, int clock) {
-    logger << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
-    cout << "[" << globalTime() << "][CLOCK: " << clock << "]::" << message << endl;
-    logger.flush();
-    return;
-}
-
-void error(const char *msg, int clock) {
-    Logger(msg, clock);
-    perror(msg);
-    exit(1);
-}
+#include "header/Socket.hpp"
 
 class Process {
 
@@ -43,29 +15,14 @@ class Process {
         * Has a unique ID (given by the user)
     */
 
-private:
-    int clock = 0;
-    int personalfd;
-    string processId;
-    int port;
-
 public:
-    int n;
-    vector<ProcessInfo> allClients, allServers;
-    vector<string> allFiles;
-    string others[100];
-    int otherFds[100], numBeings = 0;
-    socklen_t clilen;
-    char *buffer;
-    struct sockaddr_in serv_addr, cli_addr;
-    struct hostent *server;
-    queue<Message*> messageQueue;
     priority_queue<Message> readRequestQueue;
     priority_queue<Message> writeRequestQueue;
 
     bool pendingEnquiry, pendingRead, pendingWrite;
 
-    Process(char *argv[], vector<ProcessInfo> clients, vector<ProcessInfo> servers) {
+    Process(char *argv[], vector<ProcessInfo> clients, vector<ProcessInfo> servers)
+    : Socket(argv, clients, servers) {
         /*
             Initiates a socket connection
             Finds the port(s) to connect to for the servers
@@ -73,42 +30,10 @@ public:
             sends requests for read and write of files to server while maintaining mutual exclusion
         */
 
-        processId = argv[1];
+        id = argv[1];
         logfile = processId;
         logger.open("logs/" + logfile + ".txt", ios::app | ios::out);
-        port = atoi(argv[2]);
-
-        allClients = clients;
-        allServers = servers;
-
-        // Create a socket using socket() system call
-        personalfd = socket(AF_INET, SOCK_STREAM, 0);
-        if (personalfd < 0)
-            error("ERROR opening socket", this->clock);
-        Logger("Socket connection established !", this->clock);
-
-        bzero((char *) &serv_addr, sizeof(serv_addr));
-        serv_addr.sin_family = AF_INET;
-        serv_addr.sin_addr.s_addr = INADDR_ANY;
-        serv_addr.sin_port = htons(port);
-
-        struct in_addr ipAddr = serv_addr.sin_addr;
-        char ipAddress[INET_ADDRSTRLEN];
-        inet_ntop( AF_INET, &ipAddr, ipAddress, INET_ADDRSTRLEN);
-
-        Logger("Process Address: " + string(ipAddress), this->clock);
-        Logger("Process ID: " + string(processId), this->clock);
-        Logger("Process FD: " + to_string(personalfd), this->clock);
-
-        // bind the socket using the bind() system call
-        if (::bind(personalfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
-            error("ERROR on binding", this->clock);
-        Logger("Bind complete !", this->clock);
-
-        // listen for connections using the listen() system call
-        listen(personalfd, 5);
-        clilen = sizeof(cli_addr);
-        Logger("Listening for connections...", this->clock);
+        // port = atoi(argv[2]);
 
         this->sayHello();
         this->enquiry();

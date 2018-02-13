@@ -4,42 +4,8 @@
     Version 0: 2/5/2018
 */
 
-#include <stdio.h>
-#include <iostream>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <thread>
-#include <netdb.h>
-#include <vector>
-#include <fstream>
-#include <algorithm>
-#include <string>
-#include <cstring>
-#include <sstream>
-#include <unistd.h>
-#include <queue>
-#include <chrono>
-#include <ctime>
-#include <time.h>
-#include <dirent.h>
+#include "includes.hpp"
 
-#define D 1
-
-using namespace std;
-
-class ProcessInfo {
-public:
-	int fd;
-	string processID;
-	string hostname;
-	int port;
-	string system;
-};
 
 class Message {
 	/*
@@ -109,38 +75,3 @@ Message *getMessage(char* msg) {
 	Message *m = new Message(b, rw, message, s, sid, d, t, fileName);
 	return m;
 }
-
-vector<ProcessInfo> readClients(vector<ProcessInfo> clients, string fileName) {
-	ifstream clientFile(fileName);
-	string line;
-	while (getline(clientFile, line)) {
-		ProcessInfo client;
-		stringstream ss(line);
-		string item;
-		getline(ss, item, ',');
-		client.processID = item;
-		getline(ss, item, ',');
-		client.hostname = item;
-		getline(ss, item, ',');
-		client.port = stoi(item);
-		getline(ss, item, ',');
-		client.system = item;
-		clients.push_back(client);
-	}
-	return clients;
-}
-
-string randomFileSelect(vector<string> files) {
-	int randomIndex = rand() % files.size();
-	return files[randomIndex];
-}
-
-ProcessInfo findInVector(vector<ProcessInfo> clients, string name){
-	for(ProcessInfo client: clients){
-		if(client.processID == name)
-			return client;
-	}
-	throw "Not found";
-}
-
-
