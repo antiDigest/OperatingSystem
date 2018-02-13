@@ -1,3 +1,3 @@
-server1,0.0.0.0,8000,antriksh
-server2,0.0.0.0,8010,antriksh
-server3,0.0.0.0,8090,antriksh
+server1,10.176.66.52,8000,dc02
+server2,10.176.66.53,8000,dc03
+server3,10.176.66.54,8000,dc04

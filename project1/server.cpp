@@ -104,21 +104,6 @@ public:
         return v;
     }
 
-    void setClock() {
-        this->clock += D;
-    }
-
-    void setClock(int timestamp) {
-        this->clock = max(this->clock + D, timestamp);
-    }
-
-    void resetClock() {
-        this->clock = 0;
-    }
-
-    ~Server() {
-        close(personalfd);
-    }
 };
 
 int main(int argc, char *argv[])

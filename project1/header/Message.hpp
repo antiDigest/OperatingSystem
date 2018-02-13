@@ -32,7 +32,7 @@ public:
 	Message(bool r, int rw, string m, int s, string sid, int d, int t, string f) : message(m), request(r), readWrite(rw),
 		source(s), sourceID(sid), destination(d), timestamp(t), fileName(f) {}
 
-	bool operator<(const Message& rhs) {
+	bool operator<(const Message& rhs) const {
 		if (this->timestamp < rhs.timestamp) {
 			return true;
 		} else if (this->timestamp == rhs.timestamp) {
