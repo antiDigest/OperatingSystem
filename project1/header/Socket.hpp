@@ -27,14 +27,14 @@ public:
     queue<Message*> messageQueue;
     vector<ProcessInfo> allClients, allServers;
     vector<string> allFiles;
-    string others[100];
-    priority_queue<Message> readRequestQueue;
-    priority_queue<Message> writeRequestQueue;
 
-    Socket(char* argv[], vector<ProcessInfo> clients, vector<ProcessInfo> servers) {
+    Socket(char* argv[]) {
 
-        allClients = clients;
-        allServers = servers;
+        allClients = readClients(allClients, "csvs/clients.csv");;
+        allServers = readClients(allServers, "csvs/servers.csv");;
+
+        id = argv[1];
+        logger.open("logs/" + this->id + ".txt", ios::out);
 
         portno = atoi(argv[2]);
 
@@ -66,12 +66,6 @@ public:
         listen(personalfd, 5);
         clilen = sizeof(cli_addr);
         Logger("Listening for connections...", this->clock);
-
-	    std::thread connectionThread(&Socket::acceptConnection, this);
-	    std::thread ProcessThread(&Socket::processMessages, this);
-
-	    connectionThread.join();
-	    ProcessThread.join();
     }
 
     void sayHello() {
@@ -81,7 +75,6 @@ public:
                     Logger("Connecting to " + server.processID + " at " + server.hostname, this->clock);
                     int fd = this->connectTo(server.hostname, server.port);
                     this->send(personalfd, fd, "hi", server.processID);
-                    // Message *m = this->receive(fd);
                 }
             }
             catch (const char* e) {
@@ -94,7 +87,6 @@ public:
                 Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
                 int fd = this->connectTo(client.hostname, client.port);
                 this->send(personalfd, fd, "hi", client.processID);
-                // Message *m = this->receive(fd);
             }
             catch (const char* e) {
                 Logger(e, this->clock);
@@ -132,7 +124,7 @@ public:
         return fd;
     }
 
-    void send(int source, int destination, string message, string destID, int rw=0, string filename="NULL") {
+    Message* send(int source, int destination, string message, string destID, int rw=0, string filename="NULL") {
 
         Message *msg = new Message(false, rw, message, source, id, destination, this->clock, filename);
         this->setClock();
@@ -142,6 +134,8 @@ public:
             error("ERROR writing to socket", this->clock);
 
         Logger("[SENT TO " + destID + "]: " + message, this->clock);
+
+        return msg;
     }
 
     Message *receive(int source) {
@@ -156,63 +150,12 @@ public:
         this->setClock(message->timestamp);
 
         Logger("[RECEIVED FROM " + message->sourceID + "]: " + message->message, this->clock);
+
         return message;
     }
 
-    void acceptConnection() {
-        while (1) {
-            // Accept a connection with the accept() system call
-            // cout << messageQueue.front() << endl;
-            int newsockfd = accept(personalfd, (struct sockaddr *) &cli_addr, &clilen);
-            if (newsockfd < 0) {
-                // continue;
-                error("ERROR on accept", this->clock);
-            }
-            Logger("New connection " + to_string(newsockfd), this->clock);
-
-            // this->introduce(newsockfd);
-            Message* message = this->receive(newsockfd);
-            messageQueue.push(message);
-
-            close(newsockfd);
-        }
-    }
-
-    void processMessages() {
-        Message *message;
-        while (1) {
-            if (!messageQueue.empty()) {
-                message = messageQueue.front();
-                messageQueue.pop();
-                // this->checkMessage(message);
-            }
-        }
-    }
-
-    void writeMessage(Message *m, string text, int rw, string f="NULL"){
-        ProcessInfo client = getFd(m);
-        try {
-            int fd = connectTo(client.hostname, client.port);
-            this->send(m->destination, fd, text, client.processID, rw, f);
-            close(fd);
-        } catch (const char* e) {
-            Logger(e, this->clock);
-            return;
-        }
-    }
-
-    ProcessInfo getFd(Message *m) {
-        string sid = m->sourceID;
-        try {
-            ProcessInfo client = findInVector(allClients, sid);
-            return client;
-        } catch (const char* e) {}
-        try {
-            ProcessInfo server = findInVector(allServers, sid);
-            return server;
-        } catch (const char* e) {
-            throw e;
-        }
+    void writeReply(Message *m, int newsockfd, string text, int rw=0, string f="NULL") {
+        this->send(m->destination, newsockfd, text, m->sourceID, rw, f);
     }
 
     void setClock() {

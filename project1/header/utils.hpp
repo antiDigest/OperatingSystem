@@ -34,17 +34,28 @@ void error(const char *msg, int clock) {
     exit(1);
 }
 
-
 string randomFileSelect(vector<string> files) {
-	int randomIndex = rand() % files.size();
-	return files[randomIndex];
+    int randomIndex = rand() % files.size();
+    return files[randomIndex];
 }
 
 string makeFileTuple(vector<string> files) {
     string allfiles = "";
     for (string file: files) {
+        if(file=="." || file=="..")
+            continue;
         allfiles += file + ":";
     }
-    cout << allfiles << endl;
+    // cout << allfiles << endl;
     return allfiles.substr(0, allfiles.length() - 1);
+}
+
+vector<string> getFiles(string files) {
+    vector<string> allfiles;
+    istringstream line_stream(files);
+    string file;
+    while (getline(line_stream, file, ':')) {
+        allfiles.push_back(file);
+    }
+    return allfiles;
 }

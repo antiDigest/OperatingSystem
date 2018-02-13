@@ -17,58 +17,77 @@ private:
      string directory;   
 
 public:
-    Server(char* argv[], vector<ProcessInfo> clients, vector<ProcessInfo> servers)
-    : Socket(argv, clients, servers) {
-
-        id = argv[1];
-        logger.open("logs/" + this->id + ".txt", ios::app | ios::out);
+    Server(char* argv[]): Socket(argv) {
 
         directory = argv[3];
 
+        // cout << "saying hello !" << endl;
         this->sayHello();
     }
 
-    void checkMessage(Message *message) {
-        if (message->message == "hi") {
-
-            ProcessInfo client = getFd(message);
-            try {
-                int fd = connectTo(client.hostname, client.port);
-                this->send(this->personalfd, fd, "hello", client.processID);
-                close(fd);
-            } catch (const char* e) {
-                Logger(e, this->clock);
-                return;
+    void listener() {
+        while (1) {
+            // Accept a connection with the accept() system call
+            int newsockfd = accept(personalfd, (struct sockaddr *) &cli_addr, &clilen);
+            if (newsockfd < 0) {
+                error("ERROR on accept", this->clock);
             }
-        } else {
-            this->checkReadWrite(message);
+            Logger("New connection " + to_string(newsockfd), this->clock);
+
+            std::thread connectedThread(&Server::processMessages, this, newsockfd);
+            connectedThread.detach();
         }
     }
 
-    void checkReadWrite(Message *message) {
-        switch (message->readWrite) {
-        case 0: {
-            this->send(message->destination, message->source, "received", message->sourceID);
-            return;
+    void spawnNewThread(int newsockfd){
+        std::thread connectedThread(&Server::processMessages, this, newsockfd);
+        connectedThread.detach();
+        connectedThread.join();
+    }
+
+    void processMessages(int newsockfd) {
+        while (1) {
+            try{
+                Message* message = this->receive(newsockfd);
+                this->checkMessage(message, newsockfd);
+            } catch (const char* e){
+                Logger(e, this->clock);
+                close(newsockfd);
+                break;
+            }
         }
+        // close(newsockfd);
+    }
+
+    void checkMessage(Message *m, int newsockfd) {
+        if (m->message == "hi") {
+            writeReply(m , newsockfd, "hello");
+        } else {
+            this->checkReadWrite(m, newsockfd);
+        }
+        throw "BREAKING CONNECTION";
+    }
+
+    void checkReadWrite(Message *m, int newsockfd) {
+        switch (m->readWrite) {
         case 1: {
-            string line = readFile(message->fileName);
-            writeMessage(message, line, 1, message->fileName);
+            string line = readFile(m->fileName);
+            writeReply(m, newsockfd, line, 1, m->fileName);
             break;
         }
         case 2: {
-            writeToFile(message->fileName, message->message);
-            writeMessage(message, message->message, 2, message->fileName);
+            writeToFile(m->fileName, m->message);
+            writeReply(m, newsockfd, m->message, 2, m->fileName);
             break;
         }
         case 3: {
             vector<string> files = this->readDirectory(directory);
-            writeMessage(message, makeFileTuple(files), 3);
+            writeReply(m, newsockfd, makeFileTuple(files), 3);
             break;
         }
         default: {
-            this->send(message->destination, message->source, "Not making sense !", message->sourceID);
-            return;
+            this->send(m->destination, m->source, "RECEIVED !", m->sourceID);
+            break;
         }
         }
     }
@@ -97,10 +116,8 @@ public:
         struct dirent *dp;
         while ((dp = readdir(dirp)) != NULL) {
             v.push_back(dp->d_name);
-            // cout << dp->d_name << endl;
         }
         closedir(dirp);
-
         return v;
     }
 
@@ -113,10 +130,10 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    vector<ProcessInfo> allClients, allServers;
-    allClients = readClients(allClients, "clients.csv");
-    allServers = readClients(allServers, "servers.csv");
-    Server *server = new Server(argv, allClients, allServers);
+    Server *server = new Server(argv);
+
+    std::thread listenerThread(&Server::listener, server);
+    listenerThread.join();
 
     logger.close();
     return 0;

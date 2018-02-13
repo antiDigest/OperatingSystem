@@ -13,6 +13,7 @@ public:
 	string hostname;
 	int port;
 	string system;
+	bool replied = false;
 };
 
 
