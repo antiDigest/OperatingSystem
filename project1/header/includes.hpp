@@ -2,6 +2,8 @@
 /*
     @author: antriksh
     Version 0: 2/12/2018
+    		* Contains all required include
+    		* D defined
 */
 
 #include <stdio.h>

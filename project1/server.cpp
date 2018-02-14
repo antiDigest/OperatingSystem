@@ -1,6 +1,14 @@
 /*
     @author: antriksh
     Version 0: 2/5/2018
+    Version 1: 2/14/2018: 
+                * First Successful run !
+                * Documentation improved
+                * all critical sections are being visited
+                * all read and write requests are being handled
+                * all files are updated (on all the servers)
+                * Haven't tested it for more than 3 servers and 5 clients
+                * Haven't tested it with servers and clients being on different systems
 */
 
 #include "header/Socket.hpp"
@@ -22,6 +30,10 @@ public:
     }
 
     void listener() {
+        /*
+            Infinite thread to accept connection and detach a thread as
+            a receiver and checker of messages
+        */
         while (1) {
             // Accept a connection with the accept() system call
             int newsockfd = accept(personalfd, (struct sockaddr *) &cli_addr, &clilen);
@@ -36,20 +48,27 @@ public:
     }
 
     void processMessages(int newsockfd) {
-        while (1) {
-            try{
-                Message* message = this->receive(newsockfd);
-                this->checkMessage(message, newsockfd);
-            } catch (const char* e){
-                Logger(e, this->clock);
-                close(newsockfd);
-                break;
-            }
+        /*
+            Starts as a thread which receives a message and checks the message
+            @newsockfd - fd socket stream from which message would be received
+        */
+        try{
+            Message* message = this->receive(newsockfd);
+            this->checkMessage(message, newsockfd);
+        } catch (const char* e){
+            Logger(e, this->clock);
+            close(newsockfd);
         }
-        // close(newsockfd);
     }
 
     void checkMessage(Message *m, int newsockfd) {
+        /*
+            Checks the message for different types of incoming messages
+            1. hi - just a hello from some client/server (not in use)
+            2. something else (means a request to be granted)
+            @m - Message just received
+            @newsockfd - socket stream it was received from
+        */
         if (m->message == "hi") {
             writeReply(m , newsockfd, "hello");
         } else {
@@ -59,6 +78,14 @@ public:
     }
 
     void checkReadWrite(Message *m, int newsockfd) {
+        /*
+            Checks the request type
+            1 - Read: reads the last line of the file and sends it to the process
+            2 - Write: Writes to the file and replies
+            3 - Enquiry: replies with a list of files
+            @m - Message just received
+            @newsockfd - socket stream it was received from
+        */
         switch (m->readWrite) {
         case 1: {
             string line = readFile(m->fileName);
@@ -84,6 +111,9 @@ public:
     }
 
     string readFile(string INPUT_FILE) {
+        /*
+            1 - Read: reads the last line of the file and sends it to the process
+        */
         ifstream file(INPUT_FILE);
         string line;
         while (getline(file, line)) {}
@@ -92,6 +122,9 @@ public:
     }
 
     void writeToFile(string INPUT_FILE, string message) {
+        /*
+            2 - Write: Writes to the file and replies
+        */
         ofstream file;
         file.open(directory + "/" + INPUT_FILE, ios::app);
         Logger("[WRITE TO FILE]:" + message, this->clock);
@@ -100,6 +133,9 @@ public:
     }
 
     vector<string> readDirectory(string name) {
+        /*
+            3 - Enquiry: replies with a list of files
+        */
         vector<string> v;
         DIR* dirp = opendir(name.c_str());
         struct dirent *dp;

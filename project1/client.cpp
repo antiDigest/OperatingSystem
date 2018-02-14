@@ -1,6 +1,14 @@
 /*
     @author: antriksh
     Version 0: 2/5/2018
+    Version 1: 2/14/2018: 
+                * First Successful run !
+                * Documentation improved
+                * all critical sections are being visited
+                * all read and write requests are being handled
+                * all files are updated (on all the servers)
+                * Haven't tested it for more than 3 servers and 5 clients
+                * Haven't tested it with servers and clients being on different systems
 */
 
 #include "header/Socket.hpp"
@@ -27,16 +35,17 @@ private:
 public:
     Process(char *argv[]): Socket(argv) {
         /*
-            Initiates a socket connection
-            Finds the port(s) to connect to for the servers
-            initializes the list of clients
+            Enquires about the files in the system
             sends requests for read and write of files to server while maintaining mutual exclusion
         */
-        // cout << "Sending enquiry !" << endl;
         this->enquiry();
     }
 
     void listener() {
+        /*
+            Infinite thread to accept connection and detach a thread as
+            a receiver and checker of messages
+        */
         while (1) {
             // Accept a connection with the accept() system call
             int newsockfd = accept(personalfd, (struct sockaddr *) &cli_addr, &clilen);
@@ -50,25 +59,26 @@ public:
         }
     }
 
-    void spawnNewThread(int newsockfd) {
-        
-    }
-
     void processMessages(int newsockfd) {
-        while (1) {
-            try {
-                Message* message = this->receive(newsockfd);
-                close(newsockfd);
-                this->checkMessage(message, newsockfd);
-            } catch (const char* e) {
-                Logger(e, this->clock);
-                break;
-            }
+        /*
+            Starts as a thread which receives a message and checks the message
+            @newsockfd - fd socket stream from which message would be received
+        */
+        try {
+            Message* message = this->receive(newsockfd);
+            close(newsockfd);
+            this->checkMessage(message, newsockfd);
+        } catch (const char* e) {
+            Logger(e, this->clock);
+            // break;
         }
     }
 
     void processReadWrite(){
-        // while(1){
+        /*
+            Checks if the process (client) is ready to visit the criticalSection and release the resource
+            Also re-initializes everything
+        */
         // Am I allowed to read ?
         if (pendingRead && readReplyCount == allClients.size() - 1 
             && !waitForReadRelease && readRequestQueue.top()->sourceID == this->id) {
@@ -77,7 +87,6 @@ public:
             sendRelease(pendingReadMessage);
             readReplyCount = 0;
             pendingRead = false;
-            // throw "BREAKING CONNECTION";
         }
         // Am I allowed to write ?
         else if (pendingWrite && writeReplyCount == allClients.size() - 1
@@ -87,12 +96,20 @@ public:
             sendRelease(pendingWriteMessage);
             writeReplyCount = 0;
             pendingWrite = false;
-            // throw "BREAKING CONNECTION";
         }
-        // }
     }
 
     void checkMessage(Message *m, int newsockfd) {
+        /*
+            Checks the message for different types of incoming messages
+            1. hi - just a hello from some client/server (not in use)
+            2. request - request to access (read/write) a resource
+            3. reply - reply to a request
+            4. release - after using a resource, message identifying job done
+            ends with a check on if the process is ready to enter the criticalSection
+            @m - Message just received
+            @newsockfd - socket stream it was received from
+        */
         if (m->message == "hi") {
             connectAndReply(m, newsockfd, "hello");
             throw "BREAKING CONNECTION";
@@ -172,6 +189,9 @@ public:
     }
 
     void enquiry() {
+        /*
+            Enuiry - message to all servers for a list of files
+        */
         for (ProcessInfo server: allServers) {
             try {
                 Logger("Connecting to " + server.processID + " at " + server.hostname, this->clock);
@@ -191,6 +211,11 @@ public:
     }
 
     void readRequest() {
+        /*
+            Attempt to request a resource (file) for read
+            sends the request to all other clients connected
+            updates its parameters to be aware of request made
+        */
         Message *m = new Message(false, 1, "request", personalfd, this->id, -1, this->clock, randomFileSelect(allFiles));
         for (ProcessInfo client: allClients) {
             try {
@@ -214,6 +239,11 @@ public:
     }
 
     void writeRequest() {
+        /*
+            Attempt to request a resource (file) for write
+            sends the request to all other clients connected
+            updates its parameters to be aware of request made
+        */
         Message *m = new Message(false, 2, "request", personalfd, this->id, -1, this->clock, randomFileSelect(allFiles));
         for (ProcessInfo client: allClients) {
             try {
@@ -237,6 +267,10 @@ public:
     }
 
     void sendRelease(Message *m) {
+        /*
+            Updates all other clients that the resource requested has been accessed
+            and job is done
+        */
         if (m->readWrite == 1)
             readRequestQueue.pop();
         else if (m->readWrite == 2)
@@ -269,6 +303,10 @@ public:
     }
 
     void criticalSection(Message *m) {
+        /*
+            Section where the client corresponds with the server for read/write
+            @m - Message that was initially sent for request
+        */
         string cs = "[CRITICAL SECTION]";
         Logger(cs, this->clock);
 
@@ -295,6 +333,10 @@ public:
 };
 
 void io(Process *client) {
+    /*
+        IO for continuous read and write messages
+        @client - Process
+    */
     int rw = rand() % 10;
     cin >> rw;
     int i=0;
@@ -308,6 +350,10 @@ void io(Process *client) {
 }
 
 void eio(Process* client) {
+    /*
+        IO for continuous enquiry messages
+        @client - Process
+    */
     int rw = rand() % 1;
     int i=0;
     while (i < 3) {
@@ -325,13 +371,12 @@ int main(int argc, char *argv[])
 
     if (argc < 3) {
         fprintf(stderr, "usage %s ID port", argv[0]);
-        // Logger("usage " + string(argv[0]) + " ID hostname port");
         exit(0);
     }
 
+    // So that others can be activated
     sleep(5);
     Process *client = new Process(argv);
-    // io(client);
 
     std::thread listenerThread(&Process::listener, client);
     io(client);

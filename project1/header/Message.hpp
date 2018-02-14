@@ -2,6 +2,12 @@
 /*
     @author: antriksh
     Version 0: 2/5/2018
+    Version 1: 2/14/2018
+    		* Documentation improved
+    		* Added some more fields
+    		* Moved to a folder containing all headers
+    		* moved all include calls to a single header
+    		* left only the Message class related methods in this file
 */
 
 #include "includes.hpp"
@@ -34,6 +40,9 @@ public:
 
 		// CHECK
 	bool operator<(const Message& rhs) const {
+		/*
+			for priority queue check of which request has a higher priority
+		*/
 		if (this->timestamp < rhs.timestamp) {
 			return true;
 		} else if (this->timestamp == rhs.timestamp) {
@@ -46,14 +55,19 @@ public:
 };
 
 string messageString(Message *msg) {
+	/*
+		Converts message to tuple
+	*/
 	return to_string(msg->request) + ";" + to_string(msg->readWrite) + ";" + msg->message + ";" +
 	       to_string(msg->source) + ";" + msg->sourceID + ";" + to_string(msg->destination) + 
 	       ";" + to_string(msg->timestamp) + ";" + msg->fileName;
 }
 
 Message *getMessage(char* msg) {
+	/*
+		Converts char* tuple to Message
+	*/
 	string message = msg;
-	// vector<string> tokens = split(message, ";");
 	istringstream line_stream(message);
 	string token;
 	vector<string> tokens;
