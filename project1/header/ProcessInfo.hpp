@@ -13,7 +13,8 @@ public:
 	string hostname;
 	int port;
 	string system;
-	bool replied = false;
+	bool repliedRead = false;
+	bool repliedWrite = false;
 };
 
 
@@ -21,6 +22,8 @@ vector<ProcessInfo> readClients(vector<ProcessInfo> clients, string fileName) {
 	ifstream clientFile(fileName);
 	string line;
 	while (getline(clientFile, line)) {
+		if (line.c_str()[0] == '#')
+			continue;
 		ProcessInfo client;
 		stringstream ss(line);
 		string item;

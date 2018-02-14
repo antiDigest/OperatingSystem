@@ -32,6 +32,7 @@ public:
 	Message(bool r, int rw, string m, int s, string sid, int d, int t, string f) : message(m), request(r), readWrite(rw),
 		source(s), sourceID(sid), destination(d), timestamp(t), fileName(f) {}
 
+		// CHECK
 	bool operator<(const Message& rhs) const {
 		if (this->timestamp < rhs.timestamp) {
 			return true;
@@ -45,7 +46,6 @@ public:
 };
 
 string messageString(Message *msg) {
-	// cout << "Your Message: " << msg->message << endl;
 	return to_string(msg->request) + ";" + to_string(msg->readWrite) + ";" + msg->message + ";" +
 	       to_string(msg->source) + ";" + msg->sourceID + ";" + to_string(msg->destination) + 
 	       ";" + to_string(msg->timestamp) + ";" + msg->fileName;

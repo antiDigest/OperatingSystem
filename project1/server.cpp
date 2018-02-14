@@ -18,11 +18,7 @@ private:
 
 public:
     Server(char* argv[]): Socket(argv) {
-
         directory = argv[3];
-
-        // cout << "saying hello !" << endl;
-        this->sayHello();
     }
 
     void listener() {
@@ -37,12 +33,6 @@ public:
             std::thread connectedThread(&Server::processMessages, this, newsockfd);
             connectedThread.detach();
         }
-    }
-
-    void spawnNewThread(int newsockfd){
-        std::thread connectedThread(&Server::processMessages, this, newsockfd);
-        connectedThread.detach();
-        connectedThread.join();
     }
 
     void processMessages(int newsockfd) {
@@ -72,17 +62,18 @@ public:
         switch (m->readWrite) {
         case 1: {
             string line = readFile(m->fileName);
-            writeReply(m, newsockfd, line, 1, m->fileName);
+            writeReply(m, newsockfd, line);
             break;
         }
         case 2: {
-            writeToFile(m->fileName, m->message);
-            writeReply(m, newsockfd, m->message, 2, m->fileName);
+            string writeMessage = m->message + ", " + m->sourceID + ", " + globalTime();
+            writeToFile(m->fileName, writeMessage);
+            writeReply(m, newsockfd, m->message);
             break;
         }
         case 3: {
             vector<string> files = this->readDirectory(directory);
-            writeReply(m, newsockfd, makeFileTuple(files), 3);
+            writeReply(m, newsockfd, makeFileTuple(files));
             break;
         }
         default: {
@@ -94,19 +85,17 @@ public:
 
     string readFile(string INPUT_FILE) {
         ifstream file(INPUT_FILE);
-
         string line;
         while (getline(file, line)) {}
-
         Logger("[RETURN READ FROM FILE]:" + line, this->clock);
-
         return line;
     }
 
     void writeToFile(string INPUT_FILE, string message) {
         ofstream file;
-        file.open(INPUT_FILE, ios::app | ios::out);
-        file << message;
+        file.open(directory + "/" + INPUT_FILE, ios::app);
+        Logger("[WRITE TO FILE]:" + message, this->clock);
+        file << message << endl;
         file.close();
     }
 

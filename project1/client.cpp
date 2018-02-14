@@ -20,8 +20,9 @@ private:
     priority_queue<Message*> writeRequestQueue;
     bool pendingEnquiry=false, pendingRead=false, pendingWrite=false;
     bool waitForWriteRelease=false, waitForReadRelease=false;
-    int replyCount;
-    Message* pendingReadMessage, pendingWriteMessage;
+    int readReplyCount, writeReplyCount;
+    Message* pendingReadMessage;
+    Message* pendingWriteMessage;
 
 public:
     Process(char *argv[]): Socket(argv) {
@@ -44,117 +45,129 @@ public:
             }
             Logger("New connection " + to_string(newsockfd), this->clock);
 
-            // this->spawnNewThread(newsockfd);
             std::thread connectedThread(&Process::processMessages, this, newsockfd);
             connectedThread.detach();
         }
     }
 
     void spawnNewThread(int newsockfd) {
-        std::thread connectedThread(&Process::processMessages, this, newsockfd);
-        connectedThread.join();
-        close(newsockfd);
+        
     }
 
     void processMessages(int newsockfd) {
         while (1) {
             try {
                 Message* message = this->receive(newsockfd);
+                close(newsockfd);
                 this->checkMessage(message, newsockfd);
             } catch (const char* e) {
                 Logger(e, this->clock);
-                close(newsockfd);
                 break;
             }
         }
     }
 
+    void processReadWrite(){
+        // while(1){
+        // Am I allowed to read ?
+        if (pendingRead && readReplyCount == allClients.size() - 1 
+            && !waitForReadRelease && readRequestQueue.top()->sourceID == this->id) {
+            Logger("[ALL REPLIED/RELEASED, MOVING IN]", this->clock);
+            criticalSection(pendingReadMessage);
+            sendRelease(pendingReadMessage);
+            readReplyCount = 0;
+            pendingRead = false;
+            // throw "BREAKING CONNECTION";
+        }
+        // Am I allowed to write ?
+        else if (pendingWrite && writeReplyCount == allClients.size() - 1
+            && !waitForWriteRelease && writeRequestQueue.top()->sourceID == this->id) {
+            Logger("[ALL REPLIED/RELEASED, MOVING IN]", this->clock);
+            criticalSection(pendingWriteMessage);
+            sendRelease(pendingWriteMessage);
+            writeReplyCount = 0;
+            pendingWrite = false;
+            // throw "BREAKING CONNECTION";
+        }
+        // }
+    }
+
     void checkMessage(Message *m, int newsockfd) {
         if (m->message == "hi") {
-            writeReply(m, newsockfd, "hello");
+            connectAndReply(m, newsockfd, "hello");
             throw "BREAKING CONNECTION";
         }
         // request from a client
         else if (m->message == "request") {
             if (m->readWrite == 2) {
                 Logger("[WRITE REQUEST FOR FILE]: " + m->fileName, this->clock);
+                connectAndReply(m, newsockfd, "reply");
                 if (pendingWrite && pendingWriteMessage->fileName == m->fileName) {
+                    Logger("[MY WRITE REQUEST FOR FILE]: " + pendingWriteMessage->fileName, this->clock);
                     writeRequestQueue.push(m);
                     Message *write = writeRequestQueue.top();
                     if (write->sourceID != this->id) {
-                        writeReply(m, newsockfd, "reply");
                         waitForWriteRelease = true;
-                    } else {
-                        criticalSection(m);
-                        sendRelease(m);
-                        throw "BREAKING CONNECTION";
                     }
-                } else {
-                    writeReply(m, newsockfd, "reply");
                 }
             } else if (m->readWrite == 1) {
                 Logger("[READ REQUEST FOR FILE]: " + m->fileName, this->clock);
+                connectAndReply(m, newsockfd, "reply");
                 if (pendingRead && pendingReadMessage->fileName == m->fileName) {
+                    Logger("[MY READ REQUEST FOR FILE]: " + pendingReadMessage->fileName, this->clock);
                     readRequestQueue.push(m);
                     Message *write = readRequestQueue.top();
                     if (write->sourceID != this->id) {
-                        writeReply(m, newsockfd, "reply");
                         waitForReadRelease = true;
-                    } else {
-                        criticalSection(m);
-                        sendRelease(m);
-                        throw "BREAKING CONNECTION";
                     }
-                } else {
-                    writeReply(m, newsockfd, "reply");
                 }
             }
         }
-        // reply message from a client
-        else if (m->message == "reply") {
+        // reply message from a client for read
+        else if (m->message == "reply" && m->readWrite == 1) {
             for (ProcessInfo client: allClients) {
                 if (m->sourceID == client.processID) {
-                    client.replied = true;
+                    client.repliedRead = true;
                 }
-                if (client.replied == true)
-                    replyCount++;
+                if (client.repliedRead == true)
+                    readReplyCount++;
             }
-            if (replyCount == allClients.size()) {
-                criticalSection(m);
-                sendRelease(m);
-                throw "BREAKING CONNECTION";
+        }
+        // reply message from a client for write
+        else if (m->message == "reply" && m->readWrite == 2) {
+            for (ProcessInfo client: allClients) {
+                if (m->sourceID == client.processID) {
+                    client.repliedWrite = true;
+                }
+                if (client.repliedWrite == true)
+                    writeReplyCount++;
             }
         }
         // release message
         else if (m->message == "release") {
             if (m->readWrite == 2) {
                 Logger("[WRITE RELEASE FOR FILE]: " + m->fileName, this->clock);
-                writeRequestQueue.pop();
-                if (waitForRelease) {
-                    Message *read = writeRequestQueue.top();
-                    if (read->sourceID != this->id) {
-                        writeReply(m, newsockfd, "reply");
-                    } else {
-                        criticalSection(m);
-                        sendRelease(m);
-                        throw "BREAKING CONNECTION";
-                    }
+                if (waitForWriteRelease){
+                    writeRequestQueue.pop();
+                    if (writeRequestQueue.top()->sourceID == this->id)
+                        waitForWriteRelease = false;
+                    else
+                        waitForWriteRelease = true;
                 }
             } else if (m->readWrite == 1) {
                 Logger("[READ RELEASE FOR FILE]: " + m->fileName, this->clock);
-                readRequestQueue.pop();
-                if (waitForRelease) {
-                    Message *read = readRequestQueue.top();
-                    if (read->sourceID != this->id) {
-                        writeReply(m, newsockfd, "reply");
-                    } else {
-                        criticalSection(m);
-                        sendRelease(m);
-                        throw "BREAKING CONNECTION";
-                    }
+                if (waitForReadRelease){
+                    readRequestQueue.pop();
+                    if(readRequestQueue.top()->sourceID == this->id)
+                        waitForReadRelease = false;
+                    else
+                        waitForReadRelease = true;
                 }
             }
         }
+
+        processReadWrite();
+
         throw "BREAKING CONNECTION";
     }
 
@@ -178,16 +191,14 @@ public:
     }
 
     void readRequest() {
+        Message *m = new Message(false, 1, "request", personalfd, this->id, -1, this->clock, randomFileSelect(allFiles));
         for (ProcessInfo client: allClients) {
             try {
                 if (client.processID != this->id) {
                     Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
                     int fd = this->connectTo(client.hostname, client.port);
-                    Message* m = this->send(personalfd, fd, "request", client.processID, 1, "file1");
-                    pendingReadMessage = m;
-                    readRequestQueue.push(m);
-                    pendingRead = true;
-                    // Message *m = this->receive(fd);
+                    this->send(m, fd, client.processID);
+                    close(fd);
                 }
             }
             catch (const char* e) {
@@ -195,19 +206,22 @@ public:
                 continue;
             }
         }
+        pendingReadMessage = m;
+        readRequestQueue.push(m);
+        pendingRead = true;
+        // std::thread connectedThread(&Process::processReadWrite, this);
+        // connectedThread.detach();
     }
 
     void writeRequest() {
+        Message *m = new Message(false, 2, "request", personalfd, this->id, -1, this->clock, randomFileSelect(allFiles));
         for (ProcessInfo client: allClients) {
             try {
                 if (client.processID != this->id) {
                     Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
                     int fd = this->connectTo(client.hostname, client.port);
-                    Message* m = this->send(personalfd, fd, "request", client.processID, 2, "file1");
-                    pendingWriteMessage = m;
-                    writeRequestQueue.push(m);
-                    pendingWrite = true;
-                    // Message *m = this->receive(fd);
+                    this->send(m, fd, client.processID);
+                    close(fd);
                 }
             }
             catch (const char* e) {
@@ -215,29 +229,40 @@ public:
                 continue;
             }
         }
+        pendingWriteMessage = m;
+        writeRequestQueue.push(m);
+        pendingWrite = true;
+        // std::thread connectedThread(&Process::processReadWrite, this);
+        // connectedThread.detach();
     }
 
     void sendRelease(Message *m) {
+        if (m->readWrite == 1)
+            readRequestQueue.pop();
+        else if (m->readWrite == 2)
+            writeRequestQueue.pop();
         for (ProcessInfo client: allClients) {
             try {
                 if (client.processID != this->id) {
                     Logger("Connecting to " + client.processID + " at " + client.hostname, this->clock);
-                    int fd = this->connectTo(client.hostname, client.port);
-                    Message* m = this->send(personalfd, fd, "release", client.processID, m->readWrite, m->fileName);
-                    readRequestQueue.pop();
-                    if (m->readWrite == 1) {
-                        pendingRead = false;
-                    } else if (m->readWrite == 2) {
-                        pendingWrite = false;
-                    } else {
-                        pendingEnquiry = false;
+                    int fd = -1;
+                    while(fd < 0){
+                        try{
+                            fd = connectTo(client.hostname, client.port);
+                        } catch(const char* e) {
+                            Logger(e, this->clock);
+                        }
                     }
-                    client.replied = false;
-                    // Message *m = this->receive(fd);
+                    this->send(personalfd, fd, "release", client.processID, m->readWrite, m->fileName);
+                    if (m->readWrite == 1) {
+                        client.repliedRead = false;
+                    } else if (m->readWrite == 2) {
+                        client.repliedWrite = false;
+                    }
+                    close(fd);
                 }
-            }
-            catch (const char* e) {
-                Logger(e, this->clock);
+            } catch (const char* e) {
+                Logger(string(e) + "a", this->clock);
                 continue;
             }
         }
@@ -258,7 +283,10 @@ public:
             }
             this->send(this->personalfd, fd, "request", server.processID, m->readWrite, m->fileName);
             Message *m = this->receive(fd);
-            Logger(cs + "[READ]" + m->fileName + "[LINE]" + m->message, this->clock);
+            if (m->readWrite == 1)
+                Logger(cs + "[READ]" + m->fileName + "[LINE]" + m->message, this->clock);
+            else if (m->readWrite == 2)
+                Logger(cs + "[WRITE]" + m->fileName + "[LINE]" + m->message, this->clock);
         }
 
         Logger(cs + "[EXIT]", this->clock);
@@ -267,13 +295,14 @@ public:
 };
 
 void io(Process *client) {
-    int rw = rand() % 1;
+    int rw = rand() % 10;
+    cin >> rw;
     int i=0;
-    while (i < 10) {
-        sleep(5);
-        client->readRequest();
-        sleep(5);
+    while (i < rw) {
+        sleep(rw);
         client->writeRequest();
+        sleep(rw);
+        client->readRequest();
         i++;
     }
 }
@@ -300,7 +329,7 @@ int main(int argc, char *argv[])
         exit(0);
     }
 
-    sleep(10);
+    sleep(5);
     Process *client = new Process(argv);
     // io(client);
 

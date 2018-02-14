@@ -30,8 +30,8 @@ public:
 
     Socket(char* argv[]) {
 
-        allClients = readClients(allClients, "csvs/clients.csv");;
-        allServers = readClients(allServers, "csvs/servers.csv");;
+        allClients = readClients(allClients, "csvs/clients.csv");
+        allServers = readClients(allServers, "csvs/servers.csv");
 
         id = argv[1];
         logger.open("logs/" + this->id + ".txt", ios::out);
@@ -138,6 +138,14 @@ public:
         return msg;
     }
 
+    void send(Message* m, int fd, string destID){
+    	n = write(fd, messageString(m).c_str(), 1024);
+        if (n < 0)
+            error("ERROR writing to socket", this->clock);
+
+        Logger("[SENT TO " + destID + "]: " + m->message, this->clock);
+    }
+
     Message *receive(int source) {
         char msg[1024];
         bzero(msg, 1024);
@@ -154,8 +162,15 @@ public:
         return message;
     }
 
-    void writeReply(Message *m, int newsockfd, string text, int rw=0, string f="NULL") {
-        this->send(m->destination, newsockfd, text, m->sourceID, rw, f);
+    void writeReply(Message *m, int newsockfd, string text) {
+        this->send(m->destination, newsockfd, text, m->sourceID, m->readWrite, m->fileName);
+    }
+
+    void connectAndReply(Message *m, int newsockfd, string text) {
+    	ProcessInfo p = findInVector(allClients, m->sourceID);
+    	int fd = this->connectTo(p.hostname, p.port);
+        writeReply(m, fd, text);
+        close(fd);
     }
 
     void setClock() {
@@ -163,7 +178,7 @@ public:
     }
 
     void setClock(int timestamp) {
-        this->clock = max(this->clock + D, timestamp);
+        this->clock = max(this->clock + D, timestamp + D);
     }
 
     void resetClock() {
