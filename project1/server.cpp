@@ -1,7 +1,7 @@
 /*
     @author: antriksh
     Version 0: 2/5/2018
-    Version 1: 2/14/2018: 
+    Version 1: 2/14/2018:
                 * First Successful run !
                 * Documentation improved
                 * all critical sections are being visited
@@ -22,7 +22,7 @@ class Server: protected Socket {
     */
 
 private:
-     string directory;   
+    string directory;
 
 public:
     Server(char* argv[]): Socket(argv) {
@@ -52,10 +52,10 @@ public:
             Starts as a thread which receives a message and checks the message
             @newsockfd - fd socket stream from which message would be received
         */
-        try{
+        try {
             Message* message = this->receive(newsockfd);
             this->checkMessage(message, newsockfd);
-        } catch (const char* e){
+        } catch (const char* e) {
             Logger(e, this->clock);
             close(newsockfd);
         }
@@ -88,13 +88,14 @@ public:
         */
         switch (m->readWrite) {
         case 1: {
-            string line = readFile(m->fileName);
+            string line = this->readFile(m->fileName);
             writeReply(m, newsockfd, line);
             break;
         }
         case 2: {
-            string writeMessage = m->message + ", " + m->sourceID + ", " + globalTime();
-            writeToFile(m->fileName, writeMessage);
+            string writeMessage = m->message + ", " + m->sourceID + ", " + \
+                to_string(m->timestamp) + ", " + globalTime();
+            this->writeToFile(m->fileName, writeMessage);
             writeReply(m, newsockfd, m->message);
             break;
         }
@@ -114,11 +115,15 @@ public:
         /*
             1 - Read: reads the last line of the file and sends it to the process
         */
-        ifstream file(INPUT_FILE);
+        string lastLine;
+        ifstream file(directory + "/" + INPUT_FILE);
         string line;
-        while (getline(file, line)) {}
-        Logger("[RETURN READ FROM FILE]:" + line, this->clock);
-        return line;
+        while ( getline(file, line) && line != "\n") {
+            lastLine = line;
+        }
+        file.close();
+        Logger("[RETURN READ FROM FILE]:" + lastLine, this->clock);
+        return lastLine;
     }
 
     void writeToFile(string INPUT_FILE, string message) {
