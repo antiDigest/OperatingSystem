@@ -17,7 +17,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <algorithm>
-#include <boost/atomic.hpp>
 #include <chrono>
 #include <cstring>
 #include <ctime>
