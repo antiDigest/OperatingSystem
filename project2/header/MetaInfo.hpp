@@ -4,7 +4,7 @@
     Version 0: 3/15/2018
 */
 
-#include "includes.hpp"
+#include "includes.h"
 
 // Store Meta-Data for easy access
 class MetaInfo {
@@ -12,34 +12,29 @@ class MetaInfo {
     string name;
     string chunkName;
     string server;
-    int size;
-    int lines;
 
-    MetaInfo(string name, string chunkName, string server, int size, int lines)
-        : name(name),
-          chunkName(chunkName),
-          server(server),
-          size(size),
-          lines(lines) {}
+    MetaInfo(string name, string chunkName, string server)
+        : name(name), chunkName(chunkName), server(server) {}
 
     string getChunkFile() { return name + "_" + chunkName; }
 };
 
+string getChunkFile(string name, string chunkName) {
+    return name + "_" + chunkName;
+}
+
 // Converts the message from a string to MetaInfo
 MetaInfo* stringToInfo(string line) {
-    MetaInfo* meta;
     stringstream ss(line);
     string item;
     getline(ss, item, ':');
-    meta->name = item;
+    string name = item;
     getline(ss, item, ':');
-    meta->chunkName = item;
+    string chunkName = item;
     getline(ss, item, ':');
-    meta->server = item;
-    getline(ss, item, ':');
-    meta->size = stoi(item);
-    getline(ss, item, ':');
-    meta->lines = stoi(item);
+    string server = item;
+
+    MetaInfo* meta = new MetaInfo(name, chunkName, server);
 
     return meta;
 }
@@ -58,6 +53,5 @@ vector<MetaInfo*> getMetaInfo(string fileName) {
 
 // Converts info to tuple
 string infoToString(MetaInfo* m) {
-    return m->name + ":" + m->chunkName + ":" + m->server + ":" +
-           to_string(m->size) + ":" + to_string(m->lines);
+    return m->name + ":" + m->chunkName + ":" + m->server;
 }

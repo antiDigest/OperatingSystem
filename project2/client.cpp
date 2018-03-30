@@ -4,7 +4,7 @@
 */
 
 #include "header/MetaInfo.hpp"
-#include "header/Socket.hpp"
+#include "header/Socket.h"
 
 // Process: part of the lamport's mutual exclusion algorithm
 // * to perform a read, gets meta-data of file from mServer and
@@ -14,19 +14,14 @@
 // * Has a unique ID (given by the user)
 class Process : protected Socket {
    private:
-    priority_queue<Message *> readRequestQueue;
-    priority_queue<Message *> writeRequestQueue;
     bool pendingEnquiry = false, pendingRead = false, pendingWrite = false;
-    bool waitForWriteRelease = false, waitForReadRelease = false;
-    int readReplyCount, writeReplyCount;
-    Message *pendingReadMessage;
     string pendingWriteMessage;
 
    public:
     // Enquires about the files in the system
     // sends requests for read and write of files to server while
     // maintaining mutual exclusion
-    Process(char *argv[]) : Socket(argv) { this->enquiry(); }
+    Process(char *argv[]) : Socket(argv) {}
 
     // Infinite thread to accept connection and detach a thread as
     // a receiver and checker of messages
@@ -38,7 +33,6 @@ class Process : protected Socket {
             if (newsockfd < 0) {
                 error("ERROR on accept");
             }
-            Logger("New connection " + to_string(newsockfd));
 
             std::thread connectedThread(&Process::processMessages, this,
                                         newsockfd);
@@ -50,9 +44,9 @@ class Process : protected Socket {
     // @newsockfd - fd socket stream from which message would be received
     void processMessages(int newsockfd) {
         try {
-            Message *message = this->receive(newsockfd);
+            Message *message = receive(newsockfd);
             close(newsockfd);
-            this->checkMessage(message, newsockfd);
+            checkMessage(message, newsockfd);
         } catch (const char *e) {
             Logger(e);
             // break;
@@ -67,25 +61,12 @@ class Process : protected Socket {
     // @m - Message just received
     // @newsockfd - socket stream it was received from
     void checkMessage(Message *m, int newsockfd) {
-        if (m->type == "hi") {
-            // connectAndReply(m, newsockfd, "hello");
-            throw "BREAKING CONNECTION";
-        }
         // meta-data from the m-server
-        else if (m->type == "meta") {
-            // TODO: process response from meta-server
+        if (m->type == "meta") {
             MetaInfo *meta = stringToInfo(m->message);
             m->fileName = meta->getChunkFile();
             ProcessInfo server = findInVector(allServers, meta->server);
             criticalSection(m, server);
-        }
-        // reply message from a server for read
-        else if (m->type == "reply" && m->readWrite == 1) {
-            // TODO: read response from a server
-        }
-        // reply message from a server for write
-        else if (m->type == "reply" && m->readWrite == 2) {
-            // TODO: write response from a server
         }
         // Failed response from meta-server
         else if (m->type == "FAILED") {
@@ -112,8 +93,8 @@ class Process : protected Socket {
             try {
                 Logger("Connecting to " + server.processID + " at " +
                        server.hostname);
-                int fd = this->connectTo(server.hostname, server.port);
-                this->send(personalfd, fd, "enquiry", "", server.processID, 3);
+                int fd = connectTo(server.hostname, server.port);
+                send(personalfd, fd, "enquiry", "", server.processID, 3);
                 close(fd);
                 break;
             } catch (const char *e) {
@@ -125,11 +106,13 @@ class Process : protected Socket {
     // gets MetaData from the meta-server
     // requests the meta-server returned server for the resource
     void readRequest() {
-        string fileName = "file1";
+        string fileName = "file3";
         int rw = 1;
         string message = "request";
+        int byteCount = 100;
+        int offset = 14000;
 
-        getMetaData(rw, message, fileName);
+        getMetaData(rw, message, fileName, offset, byteCount);
     }
 
     // gets MetaData from the meta-server
@@ -138,7 +121,7 @@ class Process : protected Socket {
         string fileName = "file1";
         int rw = 2;
         string message =
-            "This is a random line I would like to write to a file";
+            "This is a random line I would like to write to a file\n";
 
         getMetaData(rw, message, fileName);
     }
@@ -155,19 +138,20 @@ class Process : protected Socket {
                 fd = connectTo(server.hostname, server.port);
             } catch (const char *e) {
                 Logger(cs + e);
+                Logger("[FAILED]");
+                return;
             }
         }
 
-        // TODO: Wasn't sending last I checked
         if (m->readWrite == 1) {
-            this->send(this->personalfd, fd, "request", "", server.processID,
-                       m->readWrite, m->fileName);
-            Message *msg = this->receive(fd);
-            Logger(cs + "[READ]" + m->fileName + "[LINE]" + m->message);
+            m->offset = getOffset(m->offset);
+            send(m, fd, server.processID);
+            Message *msg = receive(fd);
+            Logger(cs + "[READ]" + m->fileName + "[LINE]" + msg->message);
         } else if (m->readWrite == 2) {
-            this->send(this->personalfd, fd, "request", pendingWriteMessage,
-                       server.processID, m->readWrite, m->fileName);
-            Message *msg = this->receive(fd);
+            m->message = pendingWriteMessage;
+            send(m, fd, server.processID);
+            Message *msg = receive(fd);
             Logger(cs + "[WRITE]" + m->fileName + "[LINE]" + m->message);
         }
 
@@ -180,10 +164,19 @@ class Process : protected Socket {
     // @message - Message (for read, it is empty, for write it is the sentence
     // you want to write)
     // @fileName - file you would like to write to
-    void getMetaData(int rw, string message, string fileName) {
+    void getMetaData(int rw, string message, string fileName, int offset = 0,
+                     int byteCount = 0) {
         ProcessInfo p = mserver[0];
-        int fd = this->connectTo(p.hostname, p.port);
-        send(personalfd, fd, "request", message, p.processID, rw, fileName);
+        int fd = connectTo(p.hostname, p.port);
+        if (offset > 0 || byteCount > 0) {
+            Message *m = new Message(rw, "request", message, personalfd, id, fd,
+                                     clock, fileName);
+            m->offset = offset;
+            m->byteCount = byteCount;
+            send(m, fd, p.processID);
+        } else {
+            send(personalfd, fd, "request", message, p.processID, rw, fileName);
+        }
         if (rw == 1) {
             pendingRead = true;
         } else {

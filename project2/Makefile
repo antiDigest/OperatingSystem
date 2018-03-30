@@ -10,7 +10,7 @@ all: mserver.out server.out client.out
 boost: boost.sh
 	bash boost.sh
 
-include: header/Message.hpp header/includes.hpp header/utils.hpp header/ProcessInfo.hpp
+include: header/Message.h header/includes.h header/utils.h header/ProcessInfo.hpp
 
 mserver.out: mserver.cpp server.cpp client.cpp include
 	g++ -std=c++11 -pthread mserver.cpp -o mserver.out

@@ -4,18 +4,19 @@
 */
 
 #include "header/MetaInfo.hpp"
-#include "header/Socket.hpp"
+#include "header/Socket.h"
 
 // M-Server:
 //         * Manages files and file paths
 //         * Takes client requests to read and write
 //         * Does not do anything for maintaining mutual exclusion
-class Mserver : protected Socket {
+class Mserver : public Socket {
+   private:
+    vector<File*> files;
+
    public:
     Mserver(char* argv[]) : Socket(argv) {
-        directory = ".meta";
-        const int dir_err =
-            mkdir(directory.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+        files = readFileInfo(files, "csvs/files.csv");
     }
 
     // Infinite thread to accept connection and detach a thread as
@@ -28,7 +29,6 @@ class Mserver : protected Socket {
             if (newsockfd < 0) {
                 error("ERROR on accept");
             }
-            Logger("New connection " + to_string(newsockfd));
 
             std::thread connectedThread(&Mserver::processMessages, this,
                                         newsockfd);
@@ -39,27 +39,32 @@ class Mserver : protected Socket {
     // Starts as a thread which receives a message and checks the message
     // @newsockfd - fd socket stream from which message would be received
     void processMessages(int newsockfd) {
+        // while (1) {
         try {
-            Message* message = this->receive(newsockfd);
+            Message* message = receive(newsockfd);
             close(newsockfd);
-            this->checkMessage(message);
+            checkMessage(message);
         } catch (const char* e) {
             Logger(e);
+            close(newsockfd);
+            // break;
         }
+        // }
     }
 
     // Checks the message for different types of incoming messages
-    // 1. hi - just a hello from some client/server (not in use)
+    // 1. heartbeat - just a hello from some server
     // 2. something else (means a request to be granted)
     // @m - Message just received
     // @newsockfd - socket stream it was received from
     void checkMessage(Message* m) {
         if (m->type == "heartbeat") {
-            registerHeartBeat(m);
+            int index = findServerIndex(allServers, m->sourceID);
+            registerHeartBeat(m, index);
         } else {
-            this->checkReadWrite(m);
+            checkReadWrite(m);
+            throw "BREAKING CONNECTION";
         }
-        throw "BREAKING CONNECTION";
     }
 
     // Checks the request type
@@ -78,11 +83,6 @@ class Mserver : protected Socket {
                 checkWrite(m);
                 break;
             }
-            case 3: {
-                vector<string> files = readDirectory(directory);
-                connectAndReply(m, "enquiry", makeFileTuple(files));
-                break;
-            }
             default: {
                 string line = "UNRECOGNIZED MESSAGE !";
                 connectAndReply(m, "", line);
@@ -94,21 +94,13 @@ class Mserver : protected Socket {
     // Checks what response should be given if the client wants to read a file
     void checkRead(Message* m) {
         try {
-            if (!exists(m->fileName)) {
-                connectAndReply(m, "FAILED", "FAILED");
-            } else {
-                string line = this->readFile(m->fileName);
-                cout << line << endl;
-                MetaInfo* meta = stringToInfo(line);
-                ProcessInfo server = findInVector(allServers, meta->server);
-                if (getAlive(server)) {
-                    connectAndReply(m, "meta", line);
-                } else {
-                    connectAndReply(m, "FAILED", "FAILED");
-                }
-            }
+            string chunkName = to_string(getChunkNum(m->offset));
+            string name = getChunkFile(m->fileName, chunkName);
+            ProcessInfo server = findFileServer(allServers, name);
+            replyMeta(m, m->fileName, chunkName, server);
         } catch (char* e) {
             Logger(e);
+            Logger("[FAILED]");
             connectAndReply(m, "FAILED", "FAILED");
         }
     }
@@ -117,112 +109,136 @@ class Mserver : protected Socket {
     // file
     void checkWrite(Message* m) {
         try {
-            if (!exists(m->fileName)) {
-                createNewChunk(m, "1");
+            File* file;
+            file = findInVector(files, m->fileName);
+            if (file == NULL) {
+                file = createNewFile(m, new File);
+            }
+
+            string chunkName = to_string(file->chunks - 1);
+            string name = getChunkFile(file->name, chunkName);
+
+            ProcessInfo server = findFileServer(allServers, name);
+
+            int messageSize = m->message.length();
+            int chunkSize = getOffset(file->size);
+
+            if (messageSize > (CHUNKSIZE - chunkSize)) {
+                sizeGreater(m, file, chunkName, server, chunkSize, messageSize);
             } else {
-                string line = this->readFile(m->fileName);
-                cout << line << endl;
-                MetaInfo* meta = stringToInfo(line);
-                ProcessInfo server = findInVector(allServers, meta->server);
-                int messageSize = m->message.length();
-                if (getAlive(server)) {
-                    if (messageSize > (8192 - meta->size)) {
-                        string chunkName = to_string(stoi(meta->chunkName) + 1);
-                        createNewChunk(m, chunkName);
-                    } else {
-                        connectAndReply(m, "meta", line);
-                    }
-                } else {
-                    connectAndReply(m, "FAILED", "FAILED");
-                }
+                sizeSmaller(m, file, chunkName, server, 0, messageSize);
             }
         } catch (char* e) {
             Logger(e);
+            Logger("[FAILED]");
             connectAndReply(m, "FAILED", "FAILED");
         }
     }
 
-    // Updating meta-data in the meta Directory
-    string updateMetaData(ProcessInfo server, string name, string chunkName,
-                          int messageSize) {
-        MetaInfo* newMeta =
-            new MetaInfo(name, chunkName, server.processID, messageSize, 1);
-        string line = infoToString(newMeta);
-        writeToFile(name, line);
-        return line;
+    File* createNewFile(Message* m, File* file) {
+        Logger("[Creating new file]: " + m->fileName);
+        file->name = m->fileName;
+        createNewChunk(file, to_string(file->chunks));
+        files.push_back(file);
+
+        return file;
+    }
+
+    void sizeGreater(Message* m, File* file, string chunkName,
+                     ProcessInfo server, int chunkSize, int messageSize) {
+        int sizeThisChunk = messageSize - (CHUNKSIZE - chunkSize);
+        int sizeNewChunk = messageSize - sizeThisChunk;
+
+        sizeSmaller(m, file, chunkName, server, 0, sizeThisChunk);
+
+        chunkName = to_string(stoi(chunkName) + 1);
+        ProcessInfo newServer = createNewChunk(file, chunkName, sizeNewChunk);
+        sizeSmaller(m, file, chunkName, newServer, sizeThisChunk, sizeNewChunk);
+    }
+
+    void sizeSmaller(Message* m, File* file, string chunkName,
+                     ProcessInfo server, int offset, int byteCount) {
+        m->offset = offset;
+        m->byteCount = byteCount;
+        replyMeta(m, file->name, chunkName, server);
+    }
+
+    void replyMeta(Message* m, string fileName, string chunkName,
+                   ProcessInfo server) {
+        MetaInfo* meta = new MetaInfo(fileName, chunkName, server.processID);
+        string line = infoToString(meta);
+
+        if (server.getAlive()) {
+            connectAndReply(m, "meta", line);
+        } else {
+            connectAndReply(m, "FAILED", "FAILED");
+        }
     }
 
     // Creating new chunk
-    void createNewChunk(Message* m, string chunkName) {
-        int messageSize = m->message.length();
+    void createNewChunk(File* file, string chunkName) {
         ProcessInfo server = randomSelect(allServers);
-        string line =
-            updateMetaData(server, m->fileName, chunkName, messageSize);
-        connectAndSend(server.processID, "create", line, 2, m->fileName);
-        connectAndReply(m, "meta", line);
+        Logger("[Creating new file chunk at]: " + server.processID);
+        string fileName = getChunkFile(file->name, chunkName);
+        connectAndSend(server.processID, "create", "", 2, fileName);
+        updateMetaData(file, server);
     }
 
-    // Enquiry: replies with a list of files
-    vector<string> readDirectory(string name) {
-        vector<string> v;
-        DIR* dirp = opendir(name.c_str());
-        struct dirent* dp;
-        while ((dp = readdir(dirp)) != NULL) {
-            v.push_back(dp->d_name);
+    // Creating new chunk
+    ProcessInfo createNewChunk(File* file, string chunkName, int msgSize) {
+        ProcessInfo server = randomSelect(allServers);
+        Logger("[Creating new file chunk at]: " + server.processID);
+        string fileName = getChunkFile(file->name, chunkName);
+        connectAndSend(server.processID, "create", "", 2, fileName);
+        updateMetaData(file, server, msgSize);
+        return server;
+    }
+
+    // Updating meta-data in the meta Directory
+    void updateMetaData(File* file, ProcessInfo server, int msgSize = 0) {
+        server.addFile(getChunkFile(file->name, to_string(file->chunks)));
+        file->chunks++;
+        file->size += msgSize;
+        Logger("[Meta-Data Updated]");
+        updateServers(server);
+    }
+
+    void updateServers(ProcessInfo server) {
+        int index = 0;
+        for (ProcessInfo s : allServers) {
+            if (s.processID == server.processID) break;
+            index++;
         }
-        closedir(dirp);
-        return v;
+        allServers.at(index) = server;
     }
 
-    // TODO: Need atomic variables, @Shriroop help
-    void registerHeartBeat(Message* m) {
-        ProcessInfo p = findInVector(allServers, m->sourceID);
+    void registerHeartBeat(Message* m, int index) {
         Logger("[HEARTBEAT] " + m->sourceID);
-        setAlive(p);
+        allServers[index].setAlive();
+        allServers[index].updateFiles(m->message);
     }
 
-    // TODO: Need atomic variables, @Shriroop help
-    void checkAlive() {
+    void serversAlive() {
         while (1) {
-            sleep(3);
-            for (ProcessInfo server : this->allServers) {
-                if (getAlive(server)) {
-                    float alive = (time(NULL) - getAliveTime(server));
-                    Logger("[" + server.processID + "]: " + to_string(alive) +
-                           "::" + to_string(getAlive(server)));
-                    if (alive >= 15.0) {
-                        Logger("[" + server.processID +
-                               "]: " + to_string(getAlive(server)));
-                        resetAlive(server);
-                    }
-                }
+            for (int i = 0; i < allServers.size(); i++) {
+                allServers[i].checkAlive();
             }
         }
     }
 
-    void setAlive(ProcessInfo p) {
-        // ProcessInfo p = process.load();
-        p.alive = true;
-        p.aliveTime = time(NULL);
-        // process.store(p);
-    }
-
-    void resetAlive(ProcessInfo p) {
-        // ProcessInfo p = process.load();
-        p.alive = false;
-        // process.store(p);
-    }
-
-    bool getAlive(ProcessInfo p) {
-        // ProcessInfo p = process.load();
-        return p.alive;
-    }
-
-    time_t getAliveTime(ProcessInfo p) {
-        // ProcessInfo p = process.load();
-        return p.aliveTime;
-    }
+    ~Mserver() { updateCsv("csvs/files.csv", files); }
 };
+
+// IO for continuous read and write messages
+// @client - Process
+void io(Mserver* mserver) {
+    int rw = 25;
+    int i = 0;
+    sleep(rw);
+    for (ProcessInfo server : mserver->allServers) {
+        cout << server.getAlive() << endl;
+    }
+}
 
 int main(int argc, char* argv[]) {
     if (argc < 4) {
@@ -233,10 +249,9 @@ int main(int argc, char* argv[]) {
     Mserver* server = new Mserver(argv);
 
     std::thread listenerThread(&Mserver::listener, server);
-    // std::thread aliveThread(&Mserver::checkAlive, server);
-
+    std::thread countDown(&Mserver::serversAlive, server);
+    countDown.join();
     listenerThread.join();
-    // aliveThread.join();
 
     logger.close();
     return 0;

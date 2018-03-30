@@ -4,7 +4,7 @@
 */
 
 #include "header/MetaInfo.hpp"
-#include "header/Socket.hpp"
+#include "header/Socket.h"
 
 // Server:
 //         * Manages files and file paths
@@ -13,6 +13,9 @@
 class Server : protected Socket {
    private:
     string directory;
+    int mserverfd;
+    string mserverID;
+    vector<string> files;
 
    public:
     Server(char *argv[]) : Socket(argv) { directory = argv[3]; }
@@ -20,12 +23,14 @@ class Server : protected Socket {
     // Infinite thread sending heartbeat messages to mserver
     void heartBeat() {
         while (1) {
-            sleep(5);
             ProcessInfo p = mserver[0];
-            int fd = this->connectTo(p.hostname, p.port);
+            int mserverfd = this->connectTo(p.hostname, p.port);
             Logger("[HEARTBEAT]");
-            send(personalfd, fd, "heartbeat", "", p.processID);
-            close(fd);
+            files = readDirectory(directory);
+            send(personalfd, mserverfd, "heartbeat", makeFileTuple(files),
+                 p.processID);
+            close(mserverfd);
+            sleep(5);
         }
     }
 
@@ -39,7 +44,6 @@ class Server : protected Socket {
             if (newsockfd < 0) {
                 error("ERROR on accept");
             }
-            Logger("New connection " + to_string(newsockfd));
 
             std::thread connectedThread(&Server::processMessages, this,
                                         newsockfd);
@@ -66,7 +70,6 @@ class Server : protected Socket {
     // @newsockfd - socket stream it was received from
     void checkMessage(Message *m, int newsockfd) {
         if (m->type == "create") {
-            cout << messageString(m) << endl;
             createEmptyChunk(m);
         } else {
             this->checkReadWrite(m, newsockfd);
@@ -83,14 +86,19 @@ class Server : protected Socket {
     void checkReadWrite(Message *m, int newsockfd) {
         switch (m->readWrite) {
             case 1: {
-                string line = this->readFile(m->fileName);
+                string line = readFile(directory + "/" + m->fileName, m->offset,
+                                       m->byteCount);
                 writeReply(m, newsockfd, "reply", line);
                 break;
             }
             case 2: {
-                string writeMessage =
-                    m->message + ", " + m->sourceID + ", " + globalTime();
-                writeToFile(m->fileName, writeMessage);
+                string writeMessage = m->message;
+                if (m->offset > 0) {
+                    writeMessage = m->message.substr(m->offset, m->byteCount);
+                } else if (m->byteCount > 0) {
+                    writeMessage = m->message.substr(0, m->byteCount);
+                }
+                writeToFile(directory + "/" + m->fileName, writeMessage);
                 writeReply(m, newsockfd, "reply", m->message);
                 break;
             }
@@ -104,15 +112,17 @@ class Server : protected Socket {
 
     // Creates an empty chunk in the server directory
     void createEmptyChunk(Message *m) {
-        MetaInfo *meta = stringToInfo(m->message);
-        string name = meta->getChunkFile();
+        string name = m->fileName;
 
         Logger("[CREATING NEW CHUNK]: " + name);
 
         ofstream fs;
         fs.open(directory + "/" + name, ios::out);
         fs.close();
+        files.push_back(name);
     }
+
+    ~Server() { close(mserverfd); }
 };
 
 int main(int argc, char *argv[]) {
@@ -124,10 +134,9 @@ int main(int argc, char *argv[]) {
     Server *server = new Server(argv);
 
     std::thread listenerThread(&Server::listener, server);
-    // std::thread heartbeatThread(&Server::heartBeat, server);
-
+    std::thread heartbeatThread(&Server::heartBeat, server);
+    heartbeatThread.join();
     listenerThread.join();
-    // heartbeatThread.join();
 
     logger.close();
     return 0;
