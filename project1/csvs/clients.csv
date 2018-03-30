@@ -1,5 +1,5 @@
-client1,10.176.66.91,8000,antriksh
-client2,10.176.66.92,8000,antriksh
-client3,10.176.66.93,8000,antriksh
-client4,10.176.66.94,8000,antriksh
-client5,10.176.66.95,8000,antriksh
+client1,10.176.66.91,8000,dc41
+client2,10.176.66.92,8000,dc42
+client3,10.176.66.93,8000,dc43
+client4,10.176.66.94,8000,dc44
+client5,10.176.66.95,8000,dc45
