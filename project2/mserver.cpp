@@ -89,6 +89,8 @@ class Mserver : public Socket {
                 break;
             }
         }
+
+        updateCsv("csvs/files.csv", files);
     }
 
     // Checks what response should be given if the client wants to read a file
