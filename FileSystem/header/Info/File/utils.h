@@ -4,7 +4,6 @@
     Version 1: 4/11/2018
 */
 
-#include "../../Message/Message.h"
 #include "../../utils.h"
 #include "FileInfo.h"
 
@@ -122,7 +121,7 @@ vector<string> readDirectory(string name) {
 }
 
 // Update Files information in csv
-string updateCsv(string csv, vector<File*> files) {
+void updateCsv(string csv, vector<File*> files) {
     ofstream file;
     file.open(csv);
     file.close();

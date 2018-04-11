@@ -4,8 +4,6 @@
     Version 0: 3/15/2018
 */
 
-#include "utils.h"
-
 // Store Meta-Data for easy access
 class MetaInfo {
    public:

@@ -7,10 +7,7 @@ DIR="directory"
 
 all: mserver.out server.out client.out
 
-boost: boost.sh
-	bash boost.sh
-
-include: header/Message.h header/includes.h header/utils.h header/ProcessInfo.hpp
+include: header/*
 
 mserver.out: mserver.cpp server.cpp client.cpp include
 	g++ -std=c++11 -pthread mserver.cpp -o mserver.out

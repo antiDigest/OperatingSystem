@@ -4,8 +4,6 @@
     Version 0: 3/20/2018
 */
 
-#include "utils.h"
-
 class File {
    public:
     string name;

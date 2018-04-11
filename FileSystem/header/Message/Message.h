@@ -4,8 +4,6 @@
     Version 0: 3/14/2018
 */
 
-#include "utils.h"
-
 class Message {
     /*
             Message: message being passed between two socket recipients.

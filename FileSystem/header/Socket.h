@@ -4,8 +4,9 @@
     Version 0: 3/14/2018
 */
 
-#include "Info/File/FileInfo.h"
-#include "Info/Process/ProcessInfo.hpp"
+#include "Info/File/utils.h"
+#include "Info/Process/utils.h"
+#include "Message/utils.h"
 
 // Socket:
 //     * Parent class to Server and Client

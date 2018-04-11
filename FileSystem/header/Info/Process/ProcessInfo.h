@@ -4,8 +4,6 @@
     Version 0: 3/14/2018
 */
 
-#include "utils.h"
-
 // Store information of a process
 class ProcessInfo {
    public:

@@ -4,7 +4,7 @@
     Version 1: 4/11/2018
 */
 
-#include "../../includes.h"
+#include "../includes.h"
 #include "Message.h"
 
 string messageString(Message *msg) {

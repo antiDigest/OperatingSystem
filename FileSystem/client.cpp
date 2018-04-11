@@ -3,7 +3,7 @@
     Version 0: 3/14/2018 : TODO
 */
 
-#include "header/MetaInfo.hpp"
+#include "header/Info/Meta/utils.h"
 #include "header/Socket.h"
 
 // Process: part of the lamport's mutual exclusion algorithm
