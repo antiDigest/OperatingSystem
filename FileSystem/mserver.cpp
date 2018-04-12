@@ -4,6 +4,8 @@
     Version 1: 4/11/2018
         * Documentation updated
         * More structure to directories
+        * #includes optimized
+        * Ready for Version 1
 */
 
 #include "header/Info/Meta/utils.h"
