@@ -108,7 +108,7 @@ class Mserver : public Socket {
     }
 
     // Checks what response should be given if the client wants to write to a
-    // file
+    // file and then read from it
     void checkWrite(Message* m) {
         try {
             File* file;
